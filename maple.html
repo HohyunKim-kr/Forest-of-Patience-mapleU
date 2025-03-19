@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메이플 인내의 숲 스타일 무한 점프 게임</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background-color: #f0f0f0;
+            overflow: hidden;
+        }
+
+        #character {
+            width: 135px;
+            height: 141px;
+            position: absolute;
+            transition: top 0.05s linear, left 0.05s linear, transform 0.3s ease;
+            background-image: url('pngegg.png');
+            background-position: 0 0;
+            background-size: 677px 141px;
+            z-index: 2;
+        }
+
+        .platform {
+            width: 300px;
+            height: 50px;
+            position: absolute;
+            background-image: url('round.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            z-index: 1;
+        }
+
+        .idle {
+            animation: idleAnim 1s steps(5) infinite;
+        }
+        .moving {
+            animation: moveAnim 0.5s steps(5) infinite;
+        }
+
+        @keyframes idleAnim {
+            from { background-position: 0 0; }
+            to { background-position: -675px 0; }
+        }
+        @keyframes moveAnim {
+            from { background-position: 0 0; }
+            to { background-position: -675px 0; }
+        }
+
+        .flipped {
+            transform: scaleX(-1);
+        }
+        .normal {
+            transform: scaleX(1);
+        }
+
+        #score {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 15px;
+            border-radius: 5px;
+            z-index: 3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="character" class="idle normal"></div>
+        <div id="score">Score: 0</div>
+    </div>
+    <script>
+        const container = document.querySelector('.container');
+        const character = document.getElementById('character');
+        const scoreDisplay = document.getElementById('score');
+        let posX = window.innerWidth / 2 - 67.5;
+        let posY = window.innerHeight - 141;
+        const step = 10;
+        const gravity = 0.8;
+        let velocityY = 0;
+        const jumpPower = -20;
+        let isJumping = false;
+        let keysPressed = {};
+        let isFlipped = false;
+        let platforms = [];
+        const platformGapMin = 80;
+        const platformGapMax = 150;
+        let gameLoop;
+        let score = 0;
+        let lastPlatformY = window.innerHeight - 50;
+        let platformCount = 0;
+
+        function createPlatform(y, x = null) {
+            const platform = document.createElement('div');
+            platform.className = 'platform';
+            platform.dataset.id = platformCount++;
+            const left = x !== null ? x : Math.random() * (window.innerWidth - 300);
+            platform.style.left = `${left}px`;
+            platform.style.top = `${y}px`;
+            container.appendChild(platform);
+            return platform;
+        }
+
+        function initializePlatforms() {
+            const firstPlatformY = window.innerHeight - 50;
+            const firstPlatformX = window.innerWidth / 2 - 150;
+            platforms.push(createPlatform(firstPlatformY, firstPlatformX));
+
+            let currentY = firstPlatformY - (platformGapMin + Math.random() * (platformGapMax - platformGapMin));
+            while (currentY > -50) {
+                platforms.push(createPlatform(currentY));
+                currentY -= platformGapMin + Math.random() * (platformGapMax - platformGapMin);
+            }
+        }
+
+        initializePlatforms();
+
+        document.addEventListener('keydown', (event) => {
+            keysPressed[event.key.toLowerCase()] = true;
+            if (event.key === ' ' && !isJumping) {
+                velocityY = jumpPower;
+                isJumping = true;
+            }
+            // 방향 전환은 updatePosition에서 처리하도록 제거
+        });
+
+        document.addEventListener('keyup', (event) => {
+            delete keysPressed[event.key.toLowerCase()];
+        });
+
+        function updatePosition() {
+            let isMoving = false;
+            let newClass = 'idle';
+
+            if (keysPressed['a'] && posX > 0) {
+                posX -= step;
+                isMoving = true;
+                newClass = 'moving';
+                if (isFlipped) {
+                    isFlipped = false; // 'a' 키로 왼쪽 이동 시 normal
+                }
+            }
+            if (keysPressed['d'] && posX < (window.innerWidth - 135)) {
+                posX += step;
+                isMoving = true;
+                newClass = 'moving';
+                if (!isFlipped) {
+                    isFlipped = true; // 'd' 키로 오른쪽 이동 시 flipped
+                }
+            }
+
+            velocityY += gravity;
+            posY += velocityY;
+
+            let onPlatform = false;
+            let closestPlatform = null;
+            let closestDistance = Infinity;
+
+            platforms.forEach((platform) => {
+                const platformRect = platform.getBoundingClientRect();
+                const charRect = character.getBoundingClientRect();
+
+                if (
+                    charRect.left < platformRect.right &&
+                    charRect.right > platformRect.left &&
+                    charRect.bottom > platformRect.top &&
+                    charRect.bottom < platformRect.bottom + 5 &&
+                    velocityY > 0
+                ) {
+                    const distance = Math.abs(platformRect.top - charRect.bottom);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestPlatform = platform;
+                    }
+                }
+            });
+
+            if (closestPlatform) {
+                const platformRect = closestPlatform.getBoundingClientRect();
+                posY = platformRect.top - 141;
+                velocityY = 0;
+                isJumping = false;
+                onPlatform = true;
+
+                const currentPlatformY = parseFloat(closestPlatform.style.top);
+                if (currentPlatformY !== lastPlatformY) {
+                    if (currentPlatformY < lastPlatformY) {
+                        score += 1;
+                    } else if (currentPlatformY > lastPlatformY) {
+                        score -= 1;
+                    }
+                    score = Math.max(0, score);
+                    lastPlatformY = currentPlatformY;
+                    scoreDisplay.textContent = `Score: ${score}`;
+                }
+            }
+
+            platforms = platforms.filter((platform) => {
+                const platformRect = platform.getBoundingClientRect();
+                if (platformRect.top > window.innerHeight) {
+                    platform.remove();
+                    return false;
+                }
+                return true;
+            });
+
+            if (posY > window.innerHeight) {
+                cancelAnimationFrame(gameLoop);
+                alert('게임 오버! 다시 시작합니다.');
+                setTimeout(() => {
+                    resetGame();
+                    gameLoop = requestAnimationFrame(updatePosition);
+                }, 0);
+                return;
+            }
+
+            if (posY < window.innerHeight / 3) {
+                const moveDistance = Math.abs(velocityY);
+                platforms.forEach(platform => {
+                    const currentTop = parseFloat(platform.style.top);
+                    platform.style.top = `${currentTop + moveDistance}px`;
+                });
+                posY += moveDistance;
+
+                const highestPlatform = platforms.reduce((min, p) => 
+                    Math.min(min, parseFloat(p.style.top)), window.innerHeight);
+                if (highestPlatform > 0) {
+                    const newY = highestPlatform - (platformGapMin + Math.random() * (platformGapMax - platformGapMin));
+                    platforms.push(createPlatform(newY));
+                }
+            }
+
+            character.className = `${newClass} ${isFlipped ? 'flipped' : 'normal'}`.trim();
+            character.style.left = posX + 'px';
+            character.style.top = posY + 'px';
+
+            gameLoop = requestAnimationFrame(updatePosition);
+        }
+
+        function resetGame() {
+            posX = window.innerWidth / 2 - 67.5;
+            posY = window.innerHeight - 191;
+            velocityY = 0;
+            isJumping = false;
+            keysPressed = {};
+            isFlipped = false;
+            platforms.forEach(platform => platform.remove());
+            platforms = [];
+            score = 0;
+            platformCount = 0;
+            lastPlatformY = window.innerHeight - 50;
+            scoreDisplay.textContent = `Score: ${score}`;
+
+            const firstPlatformY = window.innerHeight - 50;
+            const firstPlatformX = window.innerWidth / 2 - 150;
+            platforms.push(createPlatform(firstPlatformY, firstPlatformX));
+
+            let currentY = firstPlatformY - (platformGapMin + Math.random() * (platformGapMax - platformGapMin));
+            while (currentY > window.innerHeight / 2) {
+                platforms.push(createPlatform(currentY));
+                currentY -= platformGapMin + Math.random() * (platformGapMax - platformGapMin);
+            }
+
+            character.style.left = posX + 'px';
+            character.style.top = posY + 'px';
+            character.style.display = 'block';
+            character.style.opacity = '1';
+            character.className = 'idle normal';
+        }
+
+        gameLoop = requestAnimationFrame(updatePosition);
+    </script>
+</body>
+</html>
