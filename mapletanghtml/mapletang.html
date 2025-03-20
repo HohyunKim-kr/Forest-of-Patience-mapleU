@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>탕탕특공대: 자유 이동 전투</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background-color: #d3e0ea;
+            overflow: hidden;
+        }
+
+        #character {
+            width: 135px;
+            height: 141px;
+            position: absolute;
+            transition: top 0.05s linear, left 0.05s linear, transform 0.3s ease;
+            background-image: url('pngegg.png');
+            background-position: 0 0;
+            background-size: 677px 141px;
+            z-index: 2;
+        }
+
+        #weapon {
+            width: 100px;
+            height: 50px;
+            position: absolute;
+            background-image: url('purplesurfingboard.png');
+            background-size: 100% 100%;
+            z-index: 3;
+            transform-origin: center;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .monster {
+            width: 130px;
+            height: 138px;
+            position: absolute;
+            background-image: url('lupin.png');
+            background-size: 520px 138px;
+            background-position: 0 0;
+            z-index: 2;
+            animation: monsterAnim 0.8s steps(4) infinite;
+            transform-origin: center;
+            display: none; /* 초기에는 숨김 */
+        }
+
+        .bullet {
+            width: 20px;
+            height: 10px;
+            position: absolute;
+            background-color: red;
+            z-index: 3;
+        }
+
+        .idle { animation: idleAnim 1s steps(5) infinite; }
+        .moving { animation: moveAnim 0.5s steps(5) infinite; }
+
+        @keyframes idleAnim {
+            from { background-position: 0 0; }
+            to { background-position: -675px 0; }
+        }
+        @keyframes moveAnim {
+            from { background-position: 0 0; }
+            to { background-position: -675px 0; }
+        }
+
+        @keyframes monsterAnim {
+            from { background-position: 0 0; }
+            to { background-position: -520px 0; }
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg) translateX(80px) rotate(0deg); }
+            to { transform: rotate(360deg) translateX(80px) rotate(-360deg); }
+        }
+
+        .flipped { transform: scaleX(-1); }
+        .normal { transform: scaleX(1); }
+
+        #score, #hp {
+            position: fixed;
+            top: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 15px;
+            border-radius: 5px;
+            z-index: 4;
+        }
+        #score { right: 10px; }
+        #hp { left: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="character" class="idle normal"></div>
+        <div id="weapon"></div>
+        <div id="score">Score: 0</div>
+        <div id="hp">HP: 100</div>
+    </div>
+    <script>
+        const container = document.querySelector('.container');
+        const character = document.getElementById('character');
+        const weapon = document.getElementById('weapon');
+        const scoreDisplay = document.getElementById('score');
+        const hpDisplay = document.getElementById('hp');
+        let posX = window.innerWidth / 2 - 67.5;
+        let posY = window.innerHeight / 2 - 70.5;
+        const step = 10;
+        const monsterSpeed = 2;
+        let keysPressed = {};
+        let isFlipped = false;
+        let monsters = []; // 전체 몬스터 풀
+        let activeMonsters = []; // 활성 몬스터 배열
+        let bullets = [];
+        let gameLoop;
+        let score = 0;
+        let hp = 100;
+        let monsterCount = 0;
+        const maxMonsters = 10;
+
+        // 메모리 풀 초기화
+        function initializeMonsterPool() {
+            for (let i = 0; i < maxMonsters; i++) {
+                const monster = document.createElement('div');
+                monster.className = 'monster';
+                monster.dataset.id = monsterCount++;
+                monster.style.display = 'none';
+                container.appendChild(monster);
+                monsters.push(monster);
+            }
+        }
+
+        // 몬스터 활성화
+        function activateMonster() {
+            const inactiveMonster = monsters.find(m => m.style.display === 'none');
+            if (inactiveMonster) {
+                const left = Math.random() * (window.innerWidth - 130);
+                const top = Math.random() * (window.innerHeight - 138);
+                inactiveMonster.style.left = `${left}px`;
+                inactiveMonster.style.top = `${top}px`;
+                inactiveMonster.style.display = 'block';
+                inactiveMonster.style.transform = 'rotate(0deg)';
+                if (!activeMonsters.includes(inactiveMonster)) {
+                    activeMonsters.push(inactiveMonster);
+                }
+                return inactiveMonster;
+            }
+            return null;
+        }
+
+        // 몬스터 비활성화
+        function deactivateMonster(monster) {
+            if (monster) {
+                monster.style.display = 'none';
+                const index = activeMonsters.indexOf(monster);
+                if (index !== -1) {
+                    activeMonsters.splice(index, 1);
+                }
+            }
+        }
+
+        function createBullet() {
+            const bullet = document.createElement('div');
+            bullet.className = 'bullet';
+            const direction = isFlipped ? -1 : 1;
+            bullet.style.left = `${posX + (direction === 1 ? 135 : -20)}px`;
+            bullet.style.top = `${posY + 50}px`;
+            bullet.dataset.direction = direction;
+            container.appendChild(bullet);
+            return bullet;
+        }
+
+        function initializeGame() {
+            initializeMonsterPool();
+            for (let i = 0; i < maxMonsters; i++) {
+                activateMonster();
+            }
+            // 초기 캐릭터 위치 설정
+            character.style.left = `${posX}px`;
+            character.style.top = `${posY}px`;
+            const weaponX = posX + (135 / 2) - (100 / 2);
+            const weaponY = posY + (141 / 2) - (50 / 2);
+            weapon.style.left = `${weaponX}px`;
+            weapon.style.top = `${weaponY}px`;
+        }
+
+        initializeGame();
+
+        document.addEventListener('keydown', (event) => {
+            keysPressed[event.key.toLowerCase()] = true;
+            if (event.key === 'f') {
+                bullets.push(createBullet());
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            delete keysPressed[event.key.toLowerCase()];
+        });
+
+        function updatePosition() {
+            let isMoving = false;
+            let newClass = 'idle';
+
+            // 캐릭터 이동
+            if (keysPressed['a'] && posX > 0) {
+                posX -= step;
+                isMoving = true;
+                newClass = 'moving';
+                if (isFlipped) isFlipped = false;
+            }
+            if (keysPressed['d'] && posX < (window.innerWidth - 135)) {
+                posX += step;
+                isMoving = true;
+                newClass = 'moving';
+                if (!isFlipped) isFlipped = true;
+            }
+            if (keysPressed['w'] && posY > 0) {
+                posY -= step;
+                isMoving = true;
+                newClass = 'moving';
+            }
+            if (keysPressed['s'] && posY < (window.innerHeight - 141)) {
+                posY += step;
+                isMoving = true;
+                newClass = 'moving';
+            }
+
+            // 몬스터 이동 및 방향 조정
+            for (let i = 0; i < activeMonsters.length; i++) {
+                const monster = activeMonsters[i];
+                const monsterX = parseFloat(monster.style.left) || 0;
+                const monsterY = parseFloat(monster.style.top) || 0;
+                const charCenterX = posX + 67.5;
+                const charCenterY = posY + 70.5;
+
+                const dx = charCenterX - monsterX;
+                const dy = charCenterY - monsterY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > 0) {
+                    const moveX = (dx / distance) * monsterSpeed;
+                    const moveY = (dy / distance) * monsterSpeed;
+                    monster.style.left = `${monsterX + moveX}px`;
+                    monster.style.top = `${monsterY + moveY}px`;
+
+                    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                    monster.style.transform = `rotate(${angle}deg)`;
+                }
+            }
+
+            // 몬스터와 캐릭터 충돌 체크
+            for (let i = activeMonsters.length - 1; i >= 0; i--) {
+                const monster = activeMonsters[i];
+                const monsterRect = monster.getBoundingClientRect();
+                const charRect = character.getBoundingClientRect();
+                if (
+                    charRect.left < monsterRect.right &&
+                    charRect.right > monsterRect.left &&
+                    charRect.top < monsterRect.bottom &&
+                    charRect.bottom > monsterRect.top
+                ) {
+                    hp -= 10;
+                    hpDisplay.textContent = `HP: ${hp}`;
+                    deactivateMonster(monster);
+                }
+            }
+
+            // 몬스터와 무기 충돌 체크
+            for (let i = activeMonsters.length - 1; i >= 0; i--) {
+                const monster = activeMonsters[i];
+                const monsterRect = monster.getBoundingClientRect();
+                const weaponRect = weapon.getBoundingClientRect();
+                if (
+                    weaponRect.left < monsterRect.right &&
+                    weaponRect.right > monsterRect.left &&
+                    weaponRect.top < monsterRect.bottom &&
+                    weaponRect.bottom > monsterRect.top
+                ) {
+                    score += 5;
+                    scoreDisplay.textContent = `Score: ${score}`;
+                    deactivateMonster(monster);
+                }
+            }
+
+            // 총알 이동 및 몬스터 제거
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                const bulletRect = bullet.getBoundingClientRect();
+                let bulletX = parseFloat(bullet.style.left);
+                const direction = parseFloat(bullet.dataset.direction);
+                bulletX += direction * 15;
+                bullet.style.left = `${bulletX}px`;
+
+                let hit = false;
+                for (let j = activeMonsters.length - 1; j >= 0; j--) {
+                    const monster = activeMonsters[j];
+                    const monsterRect = monster.getBoundingClientRect();
+                    if (
+                        bulletRect.left < monsterRect.right &&
+                        bulletRect.right > monsterRect.left &&
+                        bulletRect.top < monsterRect.bottom &&
+                        bulletRect.bottom > monsterRect.top
+                    ) {
+                        score += 5;
+                        scoreDisplay.textContent = `Score: ${score}`;
+                        deactivateMonster(monster);
+                        hit = true;
+                    }
+                }
+
+                if (bulletX < 0 || bulletX > window.innerWidth || hit) {
+                    bullet.remove();
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // 몬스터 재활성화
+            while (activeMonsters.length < maxMonsters) {
+                activateMonster();
+            }
+
+            if (hp <= 0) {
+                cancelAnimationFrame(gameLoop);
+                alert(`게임 오버! 점수: ${score} 다시 시작합니다.`);
+                setTimeout(() => {
+                    resetGame();
+                    gameLoop = requestAnimationFrame(updatePosition);
+                }, 0);
+                return;
+            }
+
+            character.className = `${newClass} ${isFlipped ? 'flipped' : 'normal'}`.trim();
+            character.style.left = `${posX}px`;
+            character.style.top = `${posY}px`;
+
+            const weaponX = posX + (135 / 2) - (100 / 2);
+            const weaponY = posY + (141 / 2) - (50 / 2);
+            weapon.style.left = `${weaponX}px`;
+            weapon.style.top = `${weaponY}px`;
+
+            gameLoop = requestAnimationFrame(updatePosition);
+        }
+
+        function resetGame() {
+            posX = window.innerWidth / 2 - 67.5;
+            posY = window.innerHeight / 2 - 70.5;
+            keysPressed = {};
+            isFlipped = false;
+            activeMonsters.forEach(monster => deactivateMonster(monster));
+            bullets.forEach(bullet => bullet.remove());
+            activeMonsters = [];
+            bullets = [];
+            score = 0;
+            hp = 100;
+            scoreDisplay.textContent = `Score: ${score}`;
+            hpDisplay.textContent = `HP: ${hp}`;
+
+            while (activeMonsters.length < maxMonsters) {
+                activateMonster();
+            }
+
+            character.style.left = `${posX}px`;
+            character.style.top = `${posY}px`;
+            character.className = 'idle normal';
+            
+            const weaponX = posX + (135 / 2) - (100 / 2);
+            const weaponY = posY + (141 / 2) - (50 / 2);
+            weapon.style.left = `${weaponX}px`;
+            weapon.style.top = `${weaponY}px`;
+        }
+
+        gameLoop = requestAnimationFrame(updatePosition);
+    </script>
+</body>
+</html>

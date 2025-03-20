@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LITH Testnet Block Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        #loading {
+            text-align: center;
+            font-size: 18px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LITH Testnet 최근 100개 블록 데이터</h1>
+        <div id="loading">데이터 로딩 중...</div>
+        <table id="blockTable" style="display: none;">
+            <thead>
+                <tr>
+                    <th>블록 번호</th>
+                    <th>타임스탬프</th>
+                    <th>트랜잭션 수</th>
+                    <th>가스 사용량</th>
+                </tr>
+            </thead>
+            <tbody id="blockTableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        async function fetchBlockData() {
+            const rpcUrl = "https://api.avax-test.network/ext/bc/C/rpc"; // Fuji Testnet RPC (LITH ID로 수정 가능)
+            const tbody = document.getElementById("blockTableBody");
+            const table = document.getElementById("blockTable");
+            const loading = document.getElementById("loading");
+
+            try {
+                // 1. 최신 블록 번호 가져오기
+                const blockNumberPayload = {
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "eth_blockNumber",
+                    params: []
+                };
+                const blockNumberResponse = await fetch(rpcUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(blockNumberPayload)
+                });
+                const blockNumberData = await blockNumberResponse.json();
+                const latestBlock = parseInt(blockNumberData.result, 16);
+
+                // 2. 최근 100개 블록 데이터 가져오기
+                const blockPromises = [];
+                for (let i = latestBlock; i > latestBlock - 100; i--) {
+                    const blockPayload = {
+                        jsonrpc: "2.0",
+                        id: i,
+                        method: "eth_getBlockByNumber",
+                        params: [`0x${i.toString(16)}`, false] // 16진수로 변환
+                    };
+                    blockPromises.push(
+                        fetch(rpcUrl, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(blockPayload)
+                        }).then(res => res.json())
+                    );
+                }
+
+                const blockResponses = await Promise.all(blockPromises);
+
+                // 3. 테이블에 데이터 채우기
+                tbody.innerHTML = ""; // 기존 데이터 초기화
+                blockResponses.forEach((blockData) => {
+                    const block = blockData.result;
+                    if (block) {
+                        const row = document.createElement("tr");
+                        const timestamp = parseInt(block.timestamp, 16);
+                        const date = new Date(timestamp * 1000).toLocaleString();
+                        const gasUsed = parseInt(block.gasUsed, 16);
+
+                        row.innerHTML = `
+                            <td>${parseInt(block.number, 16)}</td>
+                            <td>${date}</td>
+                            <td>${block.transactions.length}</td>
+                            <td>${gasUsed}</td>
+                        `;
+                        tbody.appendChild(row);
+                    }
+                });
+
+                // 4. 로딩 메시지 숨기고 테이블 표시
+                loading.style.display = "none";
+                table.style.display = "table";
+            } catch (error) {
+                console.error("데이터 가져오기 실패:", error);
+                loading.textContent = "데이터를 가져오는 데 실패했습니다.";
+            }
+        }
+
+        // 페이지 로드 시 데이터 가져오기
+        window.onload = fetchBlockData;
+    </script>
+</body>
+</html>
